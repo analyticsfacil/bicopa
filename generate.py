@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/16WtXN9wNlpCVhpXcnx1d3eB_Rb5JE69g
 """
 
-!pip install unidecode deep-translator
+
 
 import requests
 import pandas as pd
