@@ -51,6 +51,9 @@ df = pd.DataFrame(rows)
 
 df["start"] = pd.to_datetime(df["start_raw"], format="%Y%m%dT%H%M%SZ", errors="coerce")
 
+# Convert UTC → Brasília (UTC-3)
+df["start"] = df["start"] - pd.Timedelta(hours=3)
+
 df["date"] = df["start"].dt.date
 df["time"] = df["start"].dt.time
 
@@ -234,6 +237,10 @@ def translate_series(series, src='auto', dest='pt', chunk=500):
 
     return series.map(lambda x: translation_map.get(x, x) if pd.notna(x) else x)
 
+print("Salvando textos originais...")
+df_global["keyword_original"]    = df_global["keyword"]
+df_global["news_title_original"] = df_global["news_title"]
+
 print("Traduzindo keywords...")
 df_global["keyword"]    = translate_series(df_global["keyword"])
 
@@ -277,7 +284,9 @@ for _, row in df_calendario.iterrows():
 df_base_clean = df_base.fillna("").to_dict(orient="records")
 
 trends_by_country = {
-    c: g.head(10).to_dict(orient="records")
+    c: g.head(10)[["country","position","keyword","keyword_original",
+                   "traffic","date","news_title","news_title_original",
+                   "news_url","image_url"]].to_dict(orient="records")
     for c, g in df_global.groupby("country")
 }
 
@@ -1069,6 +1078,47 @@ html = f"""<!DOCTYPE html>
     .match-chip .vs-badge {{ display: none; }}
     .masthead-title {{ font-size: 1.15rem; }}
   }}
+
+  /* ── LANGUAGE TOGGLE BAR ── */
+  .lang-bar {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 6px 28px 7px;
+    background: var(--paper-dark);
+    border-top: 1px solid var(--rule);
+  }}
+  .lang-label {{
+    font-family: 'DM Mono', monospace;
+    font-size: .6rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }}
+  .lang-btn {{
+    font-family: 'DM Mono', monospace;
+    font-size: .62rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 4px 14px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 1px;
+    transition: background .12s, color .12s, border-color .12s;
+  }}
+  .lang-btn:hover {{
+    background: var(--paper-mid);
+    color: var(--ink);
+    border-color: var(--ink);
+  }}
+  .lang-btn.active {{
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }}
 </style>
 </head>
 
@@ -1087,6 +1137,11 @@ html = f"""<!DOCTYPE html>
       <hr>
       <span>Calendário Oficial &nbsp;·&nbsp; Tendências de Busca &nbsp;·&nbsp; Dados Geográficos</span>
       <hr>
+    </div>
+    <div class="lang-bar">
+      <span class="lang-label">Idioma das tendências:</span>
+      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português</button>
+      <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
     </div>
   </header>
 
@@ -1125,6 +1180,7 @@ html = f"""<!DOCTYPE html>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.8/locales/pt-br.global.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
@@ -1187,8 +1243,65 @@ function fmt(val) {{
 document.getElementById('today-date').textContent =
   new Date().toLocaleDateString('pt-BR', {{ weekday:'long', year:'numeric', month:'long', day:'numeric' }});
 
+// ── LANGUAGE STATE ────────────────────────────────────────────────
+let currentLang = 'pt'; // 'pt' | 'orig'
+
+function setLang(lang) {{
+  currentLang = lang;
+  document.getElementById('btn-pt').classList.toggle('active', lang === 'pt');
+  document.getElementById('btn-orig').classList.toggle('active', lang === 'orig');
+  // Re-render news strip if a country is already active
+  if (activeTeamEl) {{
+    const code = activeTeamEl.id === 'btn-home'
+      ? activeTeamEl.closest('#match-detail') && document.querySelector('#btn-home') && activeTeamEl._countryCode
+      : activeTeamEl._countryCode;
+    if (activeTeamEl._countryCode) renderTrends(activeTeamEl._countryCode);
+  }}
+}}
+
 // ── RENDER COUNTRY PANEL ──────────────────────────────────────────
 let activeTeamEl = null;
+
+function renderTrends(code) {{
+  const trendsCode = (code && code.startsWith('GB-')) ? 'GB' : code;
+  const trends = DATA.trends[trendsCode] || [];
+  const tb = document.getElementById('news-strip-content');
+  const titleEl = document.getElementById('news-strip-title');
+  const c = countryMap[code] || {{}};
+  if (!tb) return;
+  if (titleEl) titleEl.textContent = `Trending · ${{c.country || code}}`;
+  if (!trends.length) {{
+    tb.innerHTML = `<div class="news-strip-placeholder"><em>Sem dados de tendências disponíveis para este país.</em></div>`;
+    return;
+  }}
+  function buildCard(item) {{
+    const keyword   = currentLang === 'orig' ? (item.keyword_original   || item.keyword)   : item.keyword;
+    const newsTitle = currentLang === 'orig' ? (item.news_title_original || item.news_title) : item.news_title;
+    const imgHtml = item.image_url
+      ? `<img class="nc-img" src="${{item.image_url}}" onerror="this.parentElement.innerHTML='<div class=\\'nc-img-placeholder\\'>📰</div>'">`
+      : `<div class="nc-img-placeholder">📰</div>`;
+    const headlineHtml = item.news_url
+      ? `<a class="nc-headline" href="${{item.news_url}}" target="_blank">${{newsTitle || ''}}</a>`
+      : (newsTitle ? `<span class="nc-headline">${{newsTitle}}</span>` : '');
+    const readMoreHtml = item.news_url
+      ? `<a class="nc-read-more" href="${{item.news_url}}" target="_blank">Ler mais →</a>`
+      : '';
+    return `
+      <div class="news-card">
+        <div class="nc-img-wrap">
+          ${{imgHtml}}
+          <span class="nc-rank-badge">#${{item.position}}</span>
+        </div>
+        <div class="nc-body">
+          <div class="nc-volume">▲ ${{item.traffic}} buscas</div>
+          <div class="nc-keyword">${{keyword}}</div>
+          ${{headlineHtml}}
+          ${{readMoreHtml}}
+        </div>
+      </div>`;
+  }}
+  tb.innerHTML = `<div class="news-grid">${{trends.map(buildCard).join('')}}</div>`;
+}}
 
 function renderCountry(code, teamEl) {{
   if (!code || code === 'TBD') {{
@@ -1206,7 +1319,7 @@ function renderCountry(code, teamEl) {{
     return;
   }}
   if (activeTeamEl) activeTeamEl.classList.remove('active');
-  if (teamEl) {{ teamEl.classList.add('active'); activeTeamEl = teamEl; }}
+  if (teamEl) {{ teamEl.classList.add('active'); activeTeamEl = teamEl; teamEl._countryCode = code; }}
 
   const c = countryMap[code] || {{}};
   // GB subdivisions (GB-SCT, GB-ENG, GB-WLS, GB-NIR) use UK trends
@@ -1294,45 +1407,7 @@ function renderCountry(code, teamEl) {{
   }}
 
   // ── Render trends into the full-width news strip ─────────────────
-  const tb = document.getElementById('news-strip-content');
-  const titleEl = document.getElementById('news-strip-title');
-  if (!tb) return;
-
-  if (titleEl) {{
-    titleEl.textContent = `Trending · ${{c.country || code}}`;
-  }}
-
-  if (!trends.length) {{
-    tb.innerHTML = `<div class="news-strip-placeholder"><em>Sem dados de tendências disponíveis para este país.</em></div>`;
-    return;
-  }}
-
-  function buildCard(item) {{
-    const imgHtml = item.image_url
-      ? `<img class="nc-img" src="${{item.image_url}}" onerror="this.parentElement.innerHTML='<div class=\\'nc-img-placeholder\\'>📰</div>'">`
-      : `<div class="nc-img-placeholder">📰</div>`;
-    const headlineHtml = item.news_url
-      ? `<a class="nc-headline" href="${{item.news_url}}" target="_blank">${{item.news_title || ''}}</a>`
-      : (item.news_title ? `<span class="nc-headline">${{item.news_title}}</span>` : '');
-    const readMoreHtml = item.news_url
-      ? `<a class="nc-read-more" href="${{item.news_url}}" target="_blank">Ler mais →</a>`
-      : '';
-    return `
-      <div class="news-card">
-        <div class="nc-img-wrap">
-          ${{imgHtml}}
-          <span class="nc-rank-badge">#${{item.position}}</span>
-        </div>
-        <div class="nc-body">
-          <div class="nc-volume">▲ ${{item.traffic}} buscas</div>
-          <div class="nc-keyword">${{item.keyword}}</div>
-          ${{headlineHtml}}
-          ${{readMoreHtml}}
-        </div>
-      </div>`;
-  }}
-
-  tb.innerHTML = `<div class="news-grid">${{trends.map(buildCard).join('')}}</div>`;
+  renderTrends(code);
 }}
 
 // ── RENDER MATCH ──────────────────────────────────────────────────
@@ -1357,7 +1432,7 @@ function renderMatch(info) {{
     <div class="match-header">
       <div class="match-header-banner">
         <span class="edition-tag">⚽ Confronto da Rodada</span>
-        <div class="kickoff">⏱ ${{dtStr}} UTC</div>
+        <div class="kickoff">⏱ ${{dtStr}} BRT</div>
       </div>
       <div class="match-versus">
         <div class="team-block" id="btn-home" onclick="renderCountry('${{home}}', this)">
@@ -1387,6 +1462,8 @@ document.addEventListener('DOMContentLoaded', function() {{
 
   const calendar = new FullCalendar.Calendar(calEl, {{
     initialView: 'dayGridMonth',
+    locale: 'pt-br',
+    initialDate: '2026-06-01',
     headerToolbar: {{
       left: 'prev,next today',
       center: 'title',
