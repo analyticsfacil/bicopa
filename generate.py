@@ -51,9 +51,6 @@ df = pd.DataFrame(rows)
 
 df["start"] = pd.to_datetime(df["start_raw"], format="%Y%m%dT%H%M%SZ", errors="coerce")
 
-# Convert UTC → Brasília (UTC-3)
-df["start"] = df["start"] - pd.Timedelta(hours=3)
-
 df["date"] = df["start"].dt.date
 df["time"] = df["start"].dt.time
 
@@ -76,6 +73,18 @@ def split_teams(summary):
     return pd.Series([summary.strip() or "TBD", "TBD"])
 
 df[["home_team", "away_team"]] = df["match"].apply(split_teams)
+
+# Normalise known name variants so deduplication works correctly
+TEAM_ALIASES = {
+    "United States": "USA",
+    "Cabo Verde":    "Cape Verde",
+    "Cape Verde Islands": "Cape Verde",
+    "Korea Republic": "South Korea",
+    "IR Iran":        "Iran",
+    "Türkiye":        "Turkey",
+}
+df["home_team"] = df["home_team"].replace(TEAM_ALIASES)
+df["away_team"] = df["away_team"].replace(TEAM_ALIASES)
 
 # Drop only rows with no date (bad ICS entries); keep TBD teams
 df_calendario = df[df["date"].notna()][
@@ -141,7 +150,7 @@ team_to_country = {
     # aliases / common name variants
     "Korea Republic": "KR", "Korea DPR": "KP", "IR Iran": "IR",
     "United States": "US", "Türkiye": "TR", "Turkey": "TR",
-    "Russia": "RU",
+    "Russia": "RU", "Cabo Verde": "CV", "Cape Verde Islands": "CV",
 }
 
 # Derive the countries to fetch trends for directly from the calendar teams,
@@ -270,7 +279,7 @@ events = []
 for _, row in df_calendario.iterrows():
     events.append({
         "title": f"{row['home_team']} vs {row['away_team']}",
-        "start": f"{row['date_str']}T{row['time_str']}",
+        "start": f"{row['date_str']}T{row['time_str']}Z",
         "extendedProps": {
             "home_team": row["home_team"],
             "away_team": row["away_team"],
@@ -1421,7 +1430,7 @@ function renderMatch(info) {{
   const dt = new Date(info.event.start);
   const dtStr = dt.toLocaleString('pt-BR', {{
     weekday:'short', day:'2-digit', month:'short',
-    hour:'2-digit', minute:'2-digit', timeZone:'UTC'
+    hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'
   }});
 
   document.getElementById('placeholder').style.display = 'none';
