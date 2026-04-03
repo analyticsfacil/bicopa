@@ -3,3 +3,4 @@ requests
 unidecode
 openpyxl
 deep-translator
+pycountry
