@@ -108,8 +108,8 @@ import pycountry
 
 # Manual overrides for names that pycountry doesn't know or maps wrong
 TEAM_OVERRIDES = {
-    # FIFA/ICS name variants
-    "England":                    "GB",
+    # FIFA/ICS name variants — GB subdivisions get their own flag code
+    "England":                    "GB-ENG",
     "Scotland":                   "GB-SCT",
     "Wales":                      "GB-WLS",
     "Northern Ireland":           "GB-NIR",
@@ -124,10 +124,21 @@ TEAM_OVERRIDES = {
     "Cape Verde":                 "CV",
     "Cabo Verde":                 "CV",
     "Cape Verde Islands":         "CV",
+    # Congo variants
     "DR Congo":                   "CD",
+    "Congo DR":                   "CD",
+    "DRC":                        "CD",
+    "Congo DRC":                  "CD",
     "Democratic Republic of Congo": "CD",
-    "Congo":                      "CG",
+    "Democratic Republic Congo":  "CD",
+    # Bosnia variants
     "Bosnia":                     "BA",
+    "Bosnia and Herzegovina":     "BA",
+    "Bosnia & Herzegovina":       "BA",
+    "Bosnia-Herzegovina":         "BA",
+    "Bosnia-Hercegovina":         "BA",
+    # Others
+    "Congo":                      "CG",
     "Kosovo":                     "XK",   # not in pycountry
     "Palestine":                  "PS",
     "Hong Kong":                  "HK",
@@ -1250,6 +1261,38 @@ html = f"""<!DOCTYPE html>
     .sidebar {{ grid-row: 4 !important; }}
     .news-strip {{ grid-row: 5 !important; }}
   }}
+
+  /* ── SHARE BUTTON (mobile only) ── */
+  .share-btn {{ display: none; }}
+  @media (max-width: 900px) {{
+    .share-btn {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: transparent;
+      border: 1px solid var(--rule);
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: .6rem;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 4px 13px;
+      cursor: pointer;
+      border-radius: 1px;
+      transition: background .12s, color .12s;
+    }}
+    .share-btn:hover {{ background: var(--paper-mid); color: var(--ink); }}
+    .lang-bar {{ flex-wrap: wrap; gap: 8px; justify-content: center; }}
+  }}
+
+  /* ── BMC FOOTER ── */
+  .bmc-footer {{
+    grid-column: 1 / -1;
+    background: var(--paper-dark);
+    border-top: 2px solid var(--rule);
+    padding: 20px 28px;
+    text-align: center;
+  }}
 </style>
 </head>
 
@@ -1270,6 +1313,7 @@ html = f"""<!DOCTYPE html>
       <hr>
     </div>
     <div class="lang-bar">
+      <button class="share-btn" onclick="sharePage()">📤 Compartilhar</button>
       <span class="lang-label">Idioma das tendências:</span>
       <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português</button>
       <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
@@ -1320,6 +1364,21 @@ html = f"""<!DOCTYPE html>
       </div>
     </div>
   </section>
+
+  <!-- BMC FOOTER -->
+  <div class="bmc-footer">
+    <script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js"
+      data-name="bmc-button"
+      data-slug="analyticsfacil"
+      data-color="#FF5F5F"
+      data-emoji="🥟"
+      data-font="Bree"
+      data-text="Gostou? Me pague um pastel"
+      data-outline-color="#000000"
+      data-font-color="#ffffff"
+      data-coffee-color="#FFDD00">
+    </script>
+  </div>
 
 </div>
 
@@ -1387,7 +1446,23 @@ function setLang(lang) {{
   }}
 }}
 
-// ── RENDER COUNTRY PANEL ──────────────────────────────────────────
+// ── SHARE ─────────────────────────────────────────────────────────
+function sharePage() {{
+  if (navigator.share) {{
+    navigator.share({{
+      title: 'Jornal da Copa 2026',
+      text: 'Calendário completo dos jogos da Copa do Mundo 2026 com horários em Brasília!',
+      url: window.location.href
+    }}).catch(() => {{}});
+  }} else {{
+    // Fallback: copy URL to clipboard
+    navigator.clipboard.writeText(window.location.href).then(() => {{
+      alert('Link copiado!');
+    }}).catch(() => {{
+      prompt('Copie o link:', window.location.href);
+    }});
+  }}
+}}
 let activeTeamEl = null;
 
 function renderTrends(code) {{
@@ -1449,10 +1524,11 @@ function renderCountry(code, teamEl) {{
   if (activeTeamEl) activeTeamEl.classList.remove('active');
   if (teamEl) {{ teamEl.classList.add('active'); activeTeamEl = teamEl; teamEl._countryCode = code; }}
 
-  const c = countryMap[code] || {{}};
+  // GB subdivisions show their own flag but use UK data and coordinates
+  const dataCode = (code && code.startsWith('GB-')) ? 'GB' : code;
+  const c = countryMap[dataCode] || {{}};
   // GB subdivisions (GB-SCT, GB-ENG, GB-WLS, GB-NIR) use UK trends
-  const trendsCode = (code && code.startsWith('GB-')) ? 'GB' : code;
-  const trends = DATA.trends[trendsCode] || [];
+  const trendsCode = dataCode;
 
   // Country info block — includes map container
   const geo = document.getElementById('geo-block');
@@ -1494,7 +1570,7 @@ function renderCountry(code, teamEl) {{
     `;
 
     // Init or update Leaflet map
-    const coords = COORDS[code];
+    const coords = COORDS[dataCode];
     if (leafletMap) {{
       leafletMap.remove();
       leafletMap = null;
@@ -1535,7 +1611,7 @@ function renderCountry(code, teamEl) {{
   }}
 
   // ── Render trends into the full-width news strip ─────────────────
-  renderTrends(code);
+  renderTrends(dataCode);
 }}
 
 // ── RENDER MATCH ──────────────────────────────────────────────────
