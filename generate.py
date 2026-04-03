@@ -103,55 +103,79 @@ df_calendario = df_calendario.drop_duplicates(
 
 print(f"Total de jogos após deduplicação: {len(df_calendario)}")
 
-# ── team → ISO-2 country code ─────────────────────────────────────
-team_to_country = {
-    # Americas
-    "Brazil": "BR", "Argentina": "AR", "USA": "US", "Mexico": "MX",
-    "Canada": "CA", "Colombia": "CO", "Uruguay": "UY", "Ecuador": "EC",
-    "Peru": "PE", "Chile": "CL", "Paraguay": "PY", "Bolivia": "BO",
-    "Venezuela": "VE", "Panama": "PA", "Haiti": "HT", "Jamaica": "JM",
-    "Costa Rica": "CR", "Honduras": "HN", "El Salvador": "SV",
-    "Trinidad and Tobago": "TT", "Cuba": "CU", "Curacao": "CW",
-    "Guatemala": "GT", "Suriname": "SR",
-    # Europe
-    "France": "FR", "Germany": "DE", "Spain": "ES", "Portugal": "PT",
-    "England": "GB", "Netherlands": "NL", "Belgium": "BE", "Italy": "IT",
-    "Switzerland": "CH", "Croatia": "HR", "Denmark": "DK", "Poland": "PL",
-    "Sweden": "SE", "Norway": "NO", "Scotland": "GB-SCT",
-    "Austria": "AT", "Czech Republic": "CZ", "Hungary": "HU",
-    "Romania": "RO", "Ukraine": "UA", "Serbia": "RS", "Greece": "GR",
-    "Slovakia": "SK", "Slovenia": "SI", "Bosnia": "BA", "Iceland": "IS",
-    "Finland": "FI", "Ireland": "IE", "Wales": "GB-WLS",
-    "Northern Ireland": "GB-NIR", "Albania": "AL", "Bulgaria": "BG",
-    "Cyprus": "CY", "Estonia": "EE", "Latvia": "LV", "Lithuania": "LT",
-    "Luxembourg": "LU", "Malta": "MT", "Montenegro": "ME",
-    "North Macedonia": "MK", "Kosovo": "XK", "Georgia": "GE",
-    "Armenia": "AM", "Azerbaijan": "AZ", "Moldova": "MD", "Belarus": "BY",
-    # Africa
-    "Morocco": "MA", "Nigeria": "NG", "Senegal": "SN", "Ghana": "GH",
-    "Cameroon": "CM", "Egypt": "EG", "Tunisia": "TN", "Algeria": "DZ",
-    "South Africa": "ZA", "Kenya": "KE", "Ivory Coast": "CI",
-    "Cape Verde": "CV", "Mali": "ML", "Burkina Faso": "BF",
-    "Guinea": "GN", "Zambia": "ZM", "Tanzania": "TZ", "Angola": "AO",
-    "Ethiopia": "ET", "Uganda": "UG", "Mozambique": "MZ",
-    "Democratic Republic of Congo": "CD", "Congo": "CG",
-    # Asia & Oceania
-    "Japan": "JP", "South Korea": "KR", "Australia": "AU",
-    "Saudi Arabia": "SA", "Iran": "IR", "Qatar": "QA",
-    "United Arab Emirates": "AE", "China": "CN", "India": "IN",
-    "Uzbekistan": "UZ", "New Zealand": "NZ", "Philippines": "PH",
-    "Thailand": "TH", "Vietnam": "VN", "Malaysia": "MY",
-    "Indonesia": "ID", "Oman": "OM", "Bahrain": "BH", "Kuwait": "KW",
-    "Jordan": "JO", "Iraq": "IQ", "Syria": "SY", "Lebanon": "LB",
-    "Palestine": "PS", "Israel": "IL", "Singapore": "SG",
-    "Hong Kong": "HK", "Taiwan": "TW", "Mongolia": "MN",
-    "Bangladesh": "BD", "Sri Lanka": "LK", "Nepal": "NP",
-    "Afghanistan": "AF", "Pakistan": "PK",
-    # aliases / common name variants
-    "Korea Republic": "KR", "Korea DPR": "KP", "IR Iran": "IR",
-    "United States": "US", "Türkiye": "TR", "Turkey": "TR",
-    "Russia": "RU", "Cabo Verde": "CV", "Cape Verde Islands": "CV",
+# ── team → ISO-2: manual overrides + pycountry auto-fallback ──────
+import pycountry
+
+# Manual overrides for names that pycountry doesn't know or maps wrong
+TEAM_OVERRIDES = {
+    # FIFA/ICS name variants
+    "England":                    "GB",
+    "Scotland":                   "GB-SCT",
+    "Wales":                      "GB-WLS",
+    "Northern Ireland":           "GB-NIR",
+    "USA":                        "US",
+    "United States":              "US",
+    "Korea Republic":             "KR",
+    "Korea DPR":                  "KP",
+    "IR Iran":                    "IR",
+    "Türkiye":                    "TR",
+    "Turkey":                     "TR",
+    "Ivory Coast":                "CI",
+    "Cape Verde":                 "CV",
+    "Cabo Verde":                 "CV",
+    "Cape Verde Islands":         "CV",
+    "DR Congo":                   "CD",
+    "Democratic Republic of Congo": "CD",
+    "Congo":                      "CG",
+    "Bosnia":                     "BA",
+    "Kosovo":                     "XK",   # not in pycountry
+    "Palestine":                  "PS",
+    "Hong Kong":                  "HK",
+    "Taiwan":                     "TW",
+    "Curacao":                    "CW",
+    "Russia":                     "RU",
+    "Czech Republic":             "CZ",
+    "North Macedonia":            "MK",
 }
+
+def resolve_iso2(team_name: str) -> str | None:
+    """Return ISO-2 code for a team name, using overrides then pycountry."""
+    if not isinstance(team_name, str) or team_name in ("TBD", ""):
+        return None
+    # 1. Manual override
+    if team_name in TEAM_OVERRIDES:
+        return TEAM_OVERRIDES[team_name]
+    # 2. Exact pycountry lookup
+    country = pycountry.countries.get(name=team_name)
+    if country:
+        return country.alpha_2
+    # 3. Fuzzy pycountry search
+    results = pycountry.countries.search_fuzzy(team_name)
+    if results:
+        return results[0].alpha_2
+    return None
+
+def team_to_country_fn(team_name: str) -> str | None:
+    try:
+        return resolve_iso2(team_name)
+    except Exception:
+        return None
+
+# Build resolved mapping from all teams actually in the calendar
+all_teams = set(df_calendario["home_team"]) | set(df_calendario["away_team"])
+team_to_country = {}
+unresolved = []
+for team in sorted(all_teams):
+    code = team_to_country_fn(team)
+    if code:
+        team_to_country[team] = code
+    elif team not in ("TBD", ""):
+        unresolved.append(team)
+
+if unresolved:
+    print(f"⚠️  Times sem código ISO resolvido: {unresolved}")
+else:
+    print(f"✅  Todos os {len(team_to_country)} times resolvidos automaticamente.")
 
 # Derive the countries to fetch trends for directly from the calendar teams,
 # so every country that actually plays gets included (Jordan, Croatia, Haiti, etc.)
@@ -271,6 +295,27 @@ df_base["country_name_clean"] = df_base["country"].apply(
     lambda x: unidecode(str(x)).lower()
 )
 
+# ── Fetch coordinates for all countries from restcountries API ─────
+print("Buscando coordenadas dos países...")
+try:
+    _rc = requests.get("https://restcountries.com/v3.1/all?fields=cca2,latlng", timeout=15).json()
+    coords_map = {
+        c["cca2"]: [round(c["latlng"][0], 1), round(c["latlng"][1], 1)]
+        for c in _rc if c.get("latlng")
+    }
+    # Add a few manual entries not in restcountries
+    coords_map.update({
+        "XK": [42.6, 20.9],   # Kosovo
+        "TW": [23.7, 121.0],  # Taiwan
+        "HK": [22.3, 114.2],  # Hong Kong
+        "PS": [31.9, 35.2],   # Palestine
+    })
+    print(f"✅  Coordenadas carregadas para {len(coords_map)} países.")
+except Exception as e:
+    print(f"⚠️  Falha ao buscar coordenadas ({e}) — usando fallback embutido.")
+    coords_map = {{}}   # JS fallback handles missing coords gracefully
+
+
 df_calendario["date_str"] = df_calendario["date"].astype(str)
 df_calendario["time_str"] = df_calendario["time"].astype(str)
 
@@ -310,13 +355,50 @@ html = f"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Copa do Mundo · Dashboard</title>
+<title>Jornal da Copa 2026 · Jogos, Calendário e Tendências</title>
+
+<!-- SEO -->
+<meta name="description" content="Jornal da Copa 2026: veja os jogos da Copa hoje, o calendário completo da Copa do Mundo, horários no fuso de Brasília, tendências de busca por país e dados geográficos de cada seleção."/>
+<meta name="keywords" content="jogos da copa hoje, jogos da copa do mundo 2026, calendário copa do mundo, horário dos jogos da copa, copa do mundo 2026, próximos jogos da copa, tabela da copa 2026, copa hoje, copa 2026 jogos"/>
+<meta name="robots" content="index, follow"/>
+<link rel="canonical" href="https://jornaldacopa.com.br/"/>
+
+<!-- Open Graph -->
+<meta property="og:type" content="website"/>
+<meta property="og:title" content="Jornal da Copa 2026 · Jogos, Calendário e Tendências"/>
+<meta property="og:description" content="Calendário completo dos jogos da Copa do Mundo 2026 com horários em Brasília, tendências de busca ao vivo por país e dados de cada seleção."/>
+<meta property="og:url" content="https://jornaldacopa.com.br/"/>
+<meta property="og:locale" content="pt_BR"/>
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="Jornal da Copa 2026 · Jogos da Copa Hoje"/>
+<meta name="twitter:description" content="Calendário completo da Copa do Mundo 2026 com horários no fuso de Brasília e tendências de busca por país."/>
 
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Jornal da Copa",
+  "url": "https://jornaldacopa.com.br/",
+  "description": "Calendário completo dos jogos da Copa do Mundo 2026 com horários no fuso de Brasília.",
+  "inLanguage": "pt-BR",
+  "about": {{
+    "@type": "SportsEvent",
+    "name": "Copa do Mundo FIFA 2026",
+    "startDate": "2026-06-11",
+    "endDate": "2026-07-19",
+    "location": {{"@type": "Place", "name": "Estados Unidos, México e Canadá"}},
+    "organizer": {{"@type": "Organization", "name": "FIFA"}}
+  }}
+}}
+</script>
 
 <style>
   /* ── RESET & BASE ── */
@@ -365,26 +447,26 @@ html = f"""<!DOCTYPE html>
   .shell {{
     display: grid;
     grid-template-columns: 1fr 380px;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto 1fr auto;
     min-height: 100vh;
   }}
 
   /* Calendar and sidebar fill the middle row completely */
   .cal-panel {{
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 3;
     overflow-y: auto;
   }}
 
   .sidebar {{
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 3;
   }}
 
-  /* News strip spans full width as third row */
+  /* News strip spans full width as fourth row */
   .news-strip {{
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
     border-top: 4px double var(--ink);
     background: var(--paper);
   }}
@@ -1027,21 +1109,21 @@ html = f"""<!DOCTYPE html>
   @media (max-width: 900px) {{
     .shell {{
       grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr auto auto;
+      grid-template-rows: auto auto 1fr auto auto;
     }}
     .cal-panel {{
-      grid-column: 1; grid-row: 2;
+      grid-column: 1; grid-row: 3;
       padding: 16px 14px;
       border-right: none;
       border-bottom: 3px double var(--rule);
     }}
     .sidebar {{
-      grid-column: 1; grid-row: 3;
+      grid-column: 1; grid-row: 4;
       border-left: none;
       border-top: 3px double var(--rule);
     }}
     .news-strip {{
-      grid-column: 1; grid-row: 4;
+      grid-column: 1; grid-row: 5;
     }}
     /* News strip stacks to 2 columns on tablet */
     .news-grid {{
@@ -1128,6 +1210,46 @@ html = f"""<!DOCTYPE html>
     color: var(--paper);
     border-color: var(--ink);
   }}
+
+  /* ── INTRO TEXT ── */
+  .intro-strip {{
+    grid-column: 1 / -1;
+    background: var(--paper-mid);
+    border-bottom: 2px solid var(--rule);
+    padding: 14px 28px;
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+    flex-wrap: wrap;
+  }}
+  .intro-strip .intro-label {{
+    font-family: 'DM Mono', monospace;
+    font-size: .58rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }}
+  .intro-strip p {{
+    font-family: 'Source Serif 4', serif;
+    font-size: .82rem;
+    color: var(--muted);
+    line-height: 1.55;
+    font-style: italic;
+    margin: 0;
+  }}
+  .intro-strip strong {{
+    font-style: normal;
+    color: var(--ink);
+    font-weight: 600;
+  }}
+  @media (max-width: 900px) {{
+    .intro-strip {{ grid-row: 2; padding: 10px 16px; }}
+    .cal-panel {{ grid-row: 3 !important; }}
+    .sidebar {{ grid-row: 4 !important; }}
+    .news-strip {{ grid-row: 5 !important; }}
+  }}
 </style>
 </head>
 
@@ -1141,10 +1263,10 @@ html = f"""<!DOCTYPE html>
       <span id="today-date"></span>
       <span>Tendências &amp; Esportes · Edição Mundial</span>
     </div>
-    <div class="masthead-title">⚽ A <em>Gazeta</em> da Copa</div>
+    <div class="masthead-title">⚽ <em>Jornal</em> da Copa</div>
     <div class="masthead-sub">
       <hr>
-      <span>Calendário Oficial &nbsp;·&nbsp; Tendências de Busca &nbsp;·&nbsp; Dados Geográficos</span>
+      <span>Jogos da Copa Hoje &nbsp;·&nbsp; Calendário Oficial &nbsp;·&nbsp; Tendências de Busca &nbsp;·&nbsp; Dados Geográficos</span>
       <hr>
     </div>
     <div class="lang-bar">
@@ -1153,6 +1275,19 @@ html = f"""<!DOCTYPE html>
       <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
     </div>
   </header>
+
+  <!-- INTRO -->
+  <div class="intro-strip" role="note" aria-label="Sobre o Jornal da Copa">
+    <span class="intro-label">⚽ Sobre</span>
+    <p>
+      Acompanhe os <strong>jogos da Copa do Mundo 2026</strong> em tempo real.
+      O <strong>Jornal da Copa</strong> reúne o <strong>calendário completo</strong> com todos os
+      <strong>horários dos jogos no fuso de Brasília</strong>, as principais
+      <strong>tendências de busca</strong> de cada país participante e dados geográficos
+      de cada seleção — tudo em um só lugar, atualizado para a
+      <strong>Copa do Mundo 2026</strong> realizada nos Estados Unidos, México e Canadá.
+    </p>
+  </div>
 
   <!-- CALENDAR -->
   <main class="cal-panel">
@@ -1199,24 +1334,8 @@ const DATA = {json.dumps(data_json, ensure_ascii=False)};
 const countryMap = {{}};
 DATA.countries.forEach(c => countryMap[c.country_key] = c);
 
-// ── COUNTRY COORDINATES ───────────────────────────────────────────
-const COORDS = {{
-  AF:[33,65],AL:[41,20],DZ:[28,3],AO:[-12,18],AR:[-34,-64],AM:[40,45],
-  AU:[-25,134],AT:[47,14],AZ:[40,48],BE:[50,4],BR:[-10,-55],CA:[56,-96],
-  CL:[-35,-71],CN:[35,105],CO:[4,-74],CZ:[50,15],DK:[56,10],EG:[27,30],
-  ET:[9,39],FI:[64,26],FR:[46,2],DE:[51,10],GH:[8,-1],GR:[39,22],
-  HK:[22,114],HU:[47,19],IN:[20,77],ID:[-5,120],IE:[53,-8],IL:[31,35],
-  IT:[42,12],JP:[36,138],KE:[-1,38],MY:[4,109],MX:[23,-102],MA:[32,-6],
-  NL:[52,5],NZ:[-41,174],NG:[10,8],NO:[60,8],PE:[-10,-76],PH:[13,122],
-  PL:[52,20],PT:[39,-8],RO:[46,25],RU:[60,100],SA:[24,45],SN:[14,-14],
-  SG:[1,104],ZA:[-29,25],KR:[36,128],ES:[40,-4],SE:[62,15],CH:[47,8],
-  TW:[24,121],TH:[15,101],TR:[39,35],UA:[49,32],AE:[24,54],GB:[55,-3],
-  US:[38,-97],VN:[16,108],UY:[-33,-56],EC:[-2,-77],PY:[-23,-58],
-  BO:[-17,-65],VE:[8,-66],TN:[34,9],CM:[6,12],CI:[7,-5],SN:[14,-14],
-  RS:[44,21],HR:[45,16],SK:[48,19],SI:[46,15],BA:[44,17],ME:[42,19],
-  MK:[41,22],AL:[41,20],MT:[36,14],CY:[35,33],LU:[49,6],EE:[59,25],
-  LV:[57,25],LT:[56,24],FI:[64,26],IS:[65,-18],
-}};
+// ── COUNTRY COORDINATES (generated at build time) ────────────────
+const COORDS = {json.dumps(coords_map, ensure_ascii=False)};
 
 // ── LEAFLET MAP INSTANCE ──────────────────────────────────────────
 let leafletMap = null;
