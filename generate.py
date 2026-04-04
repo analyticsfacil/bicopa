@@ -306,6 +306,14 @@ df_base["country_name_clean"] = df_base["country"].apply(
     lambda x: unidecode(str(x)).lower()
 )
 
+# ── Translate demographic text columns to PT-BR ───────────────────
+_text_cols = ["country", "continent", "language", "currency", "religion"]
+for col in _text_cols:
+    if col in df_base.columns:
+        print(f"Traduzindo coluna '{col}'...")
+        df_base[col] = translate_series(df_base[col])
+print("Tradução dos dados geográficos concluída.")
+
 # ── Fetch coordinates for all countries from restcountries API ─────
 print("Buscando coordenadas dos países...")
 try:
@@ -1315,9 +1323,9 @@ html = f"""<!DOCTYPE html>
     <div class="lang-bar">
       <button class="share-btn" onclick="sharePage()">📤 Compartilhar</button>
       <span class="lang-label">Idioma das tendências:</span>
-      <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
-      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português (Tradução Automática)</button>
       
+      <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
+      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português (Tradução automática)</button>
     </div>
   </header>
 
@@ -1325,7 +1333,7 @@ html = f"""<!DOCTYPE html>
   <div class="intro-strip" role="note" aria-label="Sobre o Jornal da Copa">
     <span class="intro-label">⚽ Sobre</span>
     <p>
-      Acompanhe os <strong>jogos da Copa do Mundo 2026</strong> em tempo real.
+      Acompanhe os <strong>jogos da Copa do Mundo 2026</strong> diariamente.
       O <strong>Jornal da Copa</strong> reúne o <strong>calendário completo</strong> com todos os
       <strong>horários dos jogos no fuso de Brasília</strong>, as principais
       <strong>tendências de busca</strong> de cada país participante e dados geográficos
