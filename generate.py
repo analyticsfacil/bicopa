@@ -312,7 +312,48 @@ for col in _text_cols:
     if col in df_base.columns:
         print(f"Traduzindo coluna '{col}'...")
         df_base[col] = translate_series(df_base[col])
-print("Tradução dos dados geográficos concluída.")
+# ── Corrigir traduções automáticas conhecidamente erradas ─────────
+TRANSLATION_FIXES = {
+    # Google Translator confunde "Turkey" com o animal (peru)
+    "Peru":         "Turquia",   # Turkey → traduzido errado → forçar Turquia
+    # Nomes que podem ser mal traduzidos
+    "Ilhas de Cabo Verde": "Cabo Verde",
+    "Ilhas Cabo Verde":    "Cabo Verde",
+    "Verde":               "Cabo Verde",
+}
+
+# Aplicar correções pontuais apenas na coluna 'country' de df_base
+# Identificamos a linha pelo iso2 e corrigimos diretamente
+ISO2_NAME_FIXES = {
+    "TR": "Turquia",
+    "CV": "Cabo Verde",
+    "KR": "Coreia do Sul",
+    "KP": "Coreia do Norte",
+    "GB": "Reino Unido",
+    "US": "Estados Unidos",
+    "CI": "Costa do Marfim",
+    "CD": "Rep. Democrática do Congo",
+    "CG": "República do Congo",
+    "BA": "Bósnia e Herzegovina",
+    "CZ": "República Tcheca",
+    "MK": "Macedônia do Norte",
+    "TT": "Trinidad e Tobago",
+    "AE": "Emirados Árabes Unidos",
+    "CW": "Curaçao",
+    "SV": "El Salvador",
+    "XK": "Kosovo",
+    "PS": "Palestina",
+    "HK": "Hong Kong",
+    "TW": "Taiwan",
+}
+
+if "country_key" in df_base.columns and "country" in df_base.columns:
+    for iso2, name_pt in ISO2_NAME_FIXES.items():
+        mask = df_base["country_key"] == iso2
+        if mask.any():
+            df_base.loc[mask, "country"] = name_pt
+
+print("Correções de tradução aplicadas.")
 
 # ── Fetch coordinates for all countries from restcountries API ─────
 print("Buscando coordenadas dos países...")
@@ -1323,9 +1364,8 @@ html = f"""<!DOCTYPE html>
     <div class="lang-bar">
       <button class="share-btn" onclick="sharePage()">📤 Compartilhar</button>
       <span class="lang-label">Idioma das tendências:</span>
-      
+      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português</button>
       <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
-      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português (Tradução automática)</button>
     </div>
   </header>
 
@@ -1333,7 +1373,7 @@ html = f"""<!DOCTYPE html>
   <div class="intro-strip" role="note" aria-label="Sobre o Jornal da Copa">
     <span class="intro-label">⚽ Sobre</span>
     <p>
-      Acompanhe os <strong>jogos da Copa do Mundo 2026</strong> diariamente.
+      Acompanhe os <strong>jogos da Copa do Mundo 2026</strong> em tempo real.
       O <strong>Jornal da Copa</strong> reúne o <strong>calendário completo</strong> com todos os
       <strong>horários dos jogos no fuso de Brasília</strong>, as principais
       <strong>tendências de busca</strong> de cada país participante e dados geográficos
@@ -1539,16 +1579,22 @@ function renderCountry(code, teamEl) {{
   // GB subdivisions (GB-SCT, GB-ENG, GB-WLS, GB-NIR) use UK trends
   const trendsCode = dataCode;
 
+  // Display name: subdivision PT name + "(Reino Unido)" for GB parts
+  const GB_PT = {{'GB-ENG':'Inglaterra','GB-SCT':'Escócia','GB-WLS':'País de Gales','GB-NIR':'Irlanda do Norte'}};
+  const displayName = code.startsWith('GB-')
+    ? `${{GB_PT[code] || code}} (Reino Unido)`
+    : (c.country || code);
+
   // Country info block — includes map container
   const geo = document.getElementById('geo-block');
   if (geo) {{
     geo.innerHTML = `
       <div class="country-map-wrap">
         <div id="country-map"></div>
-        <div class="map-label">📍 ${{c.country || code}}</div>
+        <div class="map-label">📍 ${{displayName}}</div>
       </div>
       <div class="country-info">
-        <h3>${{c.country || code}}</h3>
+        <h3>${{displayName}}</h3>
         <div class="geo-grid">
           <div class="geo-item">
             <div class="geo-label">População</div>
