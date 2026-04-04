@@ -1315,8 +1315,9 @@ html = f"""<!DOCTYPE html>
     <div class="lang-bar">
       <button class="share-btn" onclick="sharePage()">📤 Compartilhar</button>
       <span class="lang-label">Idioma das tendências:</span>
-      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português</button>
       <button class="lang-btn" id="btn-orig" onclick="setLang('orig')">🌐 Original</button>
+      <button class="lang-btn active" id="btn-pt" onclick="setLang('pt')">🇧🇷 Português (Tradução Automática)</button>
+      
     </div>
   </header>
 
